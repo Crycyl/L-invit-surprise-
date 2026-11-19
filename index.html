@@ -16,9 +16,11 @@ input[type="text"],input[readonly]{width:100%;font:inherit;border:1px solid #ccd
 .amount-section .euro{font-size:1.2em;font-weight:700;margin-left:6px;color:#176b45}
 button{font:inherit;border:0;border-radius:10px;padding:12px 16px;background:#176b45;color:white;cursor:pointer;margin:8px 5px 8px 0}
 button.secondary{background:#e6eee9;color:#176b45}button:disabled{opacity:.5}
+button.danger{background:#c0392b;color:white}
 .result{background:#f0f6f1;padding:16px;border-radius:12px;margin:12px 0;overflow-wrap:anywhere}
 .hidden{display:none}.warning{background:#fff6df;padding:12px;border-radius:10px;color:#73531b}
 .amount-badge{display:inline-block;background:#176b45;color:#fff;border-radius:8px;padding:4px 10px;font-weight:600;margin-left:8px}
+.saved-note{background:#d4edda;color:#155724;padding:10px 14px;border-radius:8px;margin:12px 0;font-size:.9em}
 </style></head>
 <body><main>
 <h1>🎅 L'invité surprise</h1>
@@ -39,8 +41,9 @@ button.secondary{background:#e6eee9;color:#176b45}button:disabled{opacity:.5}
 <h2>Liens à envoyer</h2>
 <p>Envoie à chaque personne <strong>uniquement</strong> le lien qui porte son prénom. Elle découvrira son destinataire en l'ouvrant.</p>
 <div class="warning">🔒 Les correspondances sont chiffrées : personne ne peut voir qui gâte qui, pas même l'organisateur.</div>
+<div class="saved-note">✅ Le tirage est enregistré. Les liens resteront disponibles tant que tu ne fais pas un nouveau tirage.</div>
 <div id="links"></div>
-<button class="secondary" id="reset">Recommencer</button>
+<button class="secondary" id="reset">Recommencer (efface le tirage)</button>
 </div>
 <div id="reveal" class="hidden">
 <h2>Ton tirage 🎁</h2>
@@ -52,6 +55,7 @@ button.secondary{background:#e6eee9;color:#176b45}button:disabled{opacity:.5}
 </main>
 <script>
 const $=s=>document.querySelector(s);
+const STORAGE_KEY='santa_draw';
 
 function xorCipher(str, key){
   let result='';
@@ -91,9 +95,34 @@ function parseHash(){
   return null;
 }
 
+function saveDraw(entries){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+}
+function loadDraw(){
+  try{
+    let raw=localStorage.getItem(STORAGE_KEY);
+    if(raw) return JSON.parse(raw);
+  }catch(e){}
+  return null;
+}
+function clearDraw(){
+  localStorage.removeItem(STORAGE_KEY);
+}
+
+function renderOrganizer(entries){
+  let html="";
+  entries.forEach((entry,i)=>{
+    html+=`<div class="result"><strong>📩 ${entry.name}</strong><br><input type="text" readonly value="${entry.link}" id="link${i}"><button onclick="navigator.clipboard.writeText(document.getElementById('link${i}').value).then(()=>alert('Lien copié !'))">Copier</button></div>`;
+  });
+  $("#links").innerHTML=html;
+}
+
+// --- Au chargement de la page ---
 let payload=parseHash();
 if(payload && payload.to && payload.from){
-  $("#setup").classList.add("hidden");$("#reveal").classList.remove("hidden");
+  // Quelqu'un a ouvert son lien → page de révélation
+  $("#setup").classList.add("hidden");
+  $("#reveal").classList.remove("hidden");
   $("#show").onclick=()=>{
     let html="<strong>"+payload.to+"</strong>";
     if(payload.amount){html+='<br><br>🎁 Budget cadeau : <span class="amount-badge">'+payload.amount+' € max</span>';}
@@ -101,8 +130,17 @@ if(payload && payload.to && payload.from){
     $("#gift").classList.remove("hidden");
     $("#show").disabled=true;
   };
+}else{
+  // Pas de hash → vérifier si un tirage est enregistré
+  let saved=loadDraw();
+  if(saved && saved.length>0){
+    $("#setup").classList.add("hidden");
+    $("#organizer").classList.remove("hidden");
+    renderOrganizer(saved);
+  }
 }
 
+// --- Bouton "Faire le tirage" ---
 $("#draw").onclick=()=>{
   let names=$("#names").value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
   names=[...new Set(names)];
@@ -119,18 +157,29 @@ $("#draw").onclick=()=>{
   } while(receivers.some((x,i)=>x===names[i]));
 
   let key=generateKey();
-  $("#setup").classList.add("hidden");
-  $("#organizer").classList.remove("hidden");
+  let root=location.href.split("#")[0];
+  let entries=[];
 
-  let root=location.href.split("#")[0], html="";
   names.forEach((from,i)=>{
     let data={from:from, to:receivers[i], amount:amount};
     let encrypted=encryptData(data, key);
     let link=root+"#santa="+key+"."+encrypted;
-    html+=`<div class="result"><strong>📩 ${from}</strong><br><input type="text" readonly value="${link}" id="link${i}"><button onclick="navigator.clipboard.writeText(document.getElementById('link${i}').value).then(()=>alert('Lien copié !'))">Copier</button></div>`;
+    entries.push({name:from, link:link});
   });
-  $("#links").innerHTML=html;
+
+  // Enregistrer dans localStorage
+  saveDraw(entries);
+
+  $("#setup").classList.add("hidden");
+  $("#organizer").classList.remove("hidden");
+  renderOrganizer(entries);
 };
 
-$("#reset").onclick=()=>location.href=location.href.split("#")[0];
+// --- Bouton "Recommencer" ---
+$("#reset").onclick=()=>{
+  if(confirm("Effacer le tirage actuel et recommencer ?")){
+    clearDraw();
+    location.href=location.href.split("#")[0];
+  }
+};
 </script></body></html>
