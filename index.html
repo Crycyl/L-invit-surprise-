@@ -19,6 +19,7 @@ button.secondary{background:#e6eee9;color:#176b45}button:disabled{opacity:.5}
 .result{background:#f0f6f1;padding:16px;border-radius:12px;margin:12px 0;overflow-wrap:anywhere}
 .hidden{display:none}.warning{background:#fff6df;padding:12px;border-radius:10px;color:#73531b}
 .amount-badge{display:inline-block;background:#176b45;color:#fff;border-radius:8px;padding:4px 10px;font-weight:600;margin-left:8px}
+.secret-badge{display:inline-block;background:#c0392b;color:#fff;border-radius:8px;padding:4px 10px;font-weight:600;margin-left:8px;font-size:.85em}
 </style></head>
 <body><main>
 <h1>🎅 L'invité surprise</h1>
@@ -37,8 +38,8 @@ button.secondary{background:#e6eee9;color:#176b45}button:disabled{opacity:.5}
 </div>
 <div id="organizer" class="hidden">
 <h2>Liens individuels à partager</h2>
-<p>Copie et envoie à chaque personne uniquement son lien. Le lien ouvre une page qui révèle son destinataire.</p>
-<div class="warning">L'organisateur voit les correspondances ci-dessous. Pour garder le tirage secret vis-à-vis de l'organisateur aussi, il faudrait une solution avec serveur ou tiers neutre.</div>
+<p>Copie et envoie à chaque personne <strong>uniquement</strong> son lien. Le destinataire est révélé uniquement à la personne concernée.</p>
+<div class="warning">🔒 Les correspondances sont <strong>chiffrées</strong> : même l'organisateur ne peut pas voir qui fait un cadeau à qui. Seule chaque personne découvrira son destinataire en ouvrant son lien.</div>
 <div id="links"></div>
 <button class="secondary" id="reset">Recommencer</button>
 </div>
@@ -52,37 +53,95 @@ button.secondary{background:#e6eee9;color:#176b45}button:disabled{opacity:.5}
 </main>
 <script>
 const $=s=>document.querySelector(s);
-function parseHash(){
- try {if(location.hash.startsWith("#santa=")){let data=JSON.parse(decodeURIComponent(escape(atob(location.hash.slice(7)))));return data;} }catch(e){}
- return null;
+
+// --- Chiffrement / déchiffrement simple (XOR + base64) ---
+function xorCipher(str, key){
+  let result='';
+  for(let i=0;i<str.length;i++){
+    result+=String.fromCharCode(str.charCodeAt(i)^key.charCodeAt(i%key.length));
+  }
+  return result;
 }
+function encryptData(data, key){
+  return btoa(xorCipher(encodeURIComponent(JSON.stringify(data)), key));
+}
+function decryptData(encoded, key){
+  try{
+    let plain=xorCipher(atob(encoded), key);
+    return JSON.parse(decodeURIComponent(plain));
+  }catch(e){return null;}
+}
+
+// --- Génération d'une clé de chiffrement aléatoire ---
+function generateKey(){
+  const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%';
+  let key='';
+  for(let i=0;i<32;i++) key+=chars[Math.floor(Math.random()*chars.length)];
+  return key;
+}
+
+// --- Lecture du hash pour la page de révélation ---
+function parseHash(){
+  try{
+    if(location.hash.startsWith("#santa=")){
+      let encoded=location.hash.slice(7);
+      let parts=encoded.split('.');
+      if(parts.length===2){
+        let key=parts[0];
+        let data=decryptData(parts[1], key);
+        if(data && data.to && data.from) return data;
+      }
+    }
+  }catch(e){}
+  return null;
+}
+
 let payload=parseHash();
 if(payload && payload.to && payload.from){
- $("#setup").classList.add("hidden");$("#reveal").classList.remove("hidden");
- $("#show").onclick=()=>{
-   let html="<strong>"+payload.to+"</strong>";
-   if(payload.amount){html+='<br><br>🎁 Budget cadeau : <span class="amount-badge">'+payload.amount+' € max</span>';}
-   $("#gift").innerHTML=html;
-   $("#gift").classList.remove("hidden");
-   $("#show").disabled=true;
- };
+  $("#setup").classList.add("hidden");$("#reveal").classList.remove("hidden");
+  $("#show").onclick=()=>{
+    let html="<strong>"+payload.to+"</strong>";
+    if(payload.amount){html+='<br><br>🎁 Budget cadeau : <span class="amount-badge">'+payload.amount+' € max</span>';}
+    $("#gift").innerHTML=html;
+    $("#gift").classList.remove("hidden");
+    $("#show").disabled=true;
+  };
 }
+
 $("#draw").onclick=()=>{
- let names=$("#names").value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
- names=[...new Set(names)];
- if(names.length<2){alert("Ajoute au moins 2 prénoms.");return;}
- let amount=parseFloat($("#amount").value)||5;
- let receivers;
- do {receivers=[...names];for(let i=receivers.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[receivers[i],receivers[j]]=[receivers[j],receivers[i]];}}
- while(receivers.some((x,i)=>x===names[i]));
- $("#setup").classList.add("hidden");$("#organizer").classList.remove("hidden");
- let root=location.href.split("#")[0], html="";
- names.forEach((from,i)=>{
-   let data={from,to:receivers[i],amount:amount}, encoded=btoa(unescape(encodeURIComponent(JSON.stringify(data))));
-   let link=root+"#santa="+encoded;
-   html+=`<div class="result"><strong>${from}</strong> → ${receivers[i]} <span class="amount-badge">${amount} € max</span><br><input type="text" readonly value="${link}" id="link${i}"><button onclick="navigator.clipboard.writeText(document.getElementById('link${i}').value).then(()=>alert('Lien copié !'))">Copier le lien de ${from}</button></div>`;
- });
- $("#links").innerHTML=html;
+  let names=$("#names").value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+  names=[...new Set(names)];
+  if(names.length<2){alert("Ajoute au moins 2 prénoms.");return;}
+  let amount=parseFloat($("#amount").value)||5;
+
+  // Fisher-Yates derangement
+  let receivers;
+  do {
+    receivers=[...names];
+    for(let i=receivers.length-1;i>0;i--){
+      let j=Math.floor(Math.random()*(i+1));
+      [receivers[i],receivers[j]]=[receivers[j],receivers[i]];
+    }
+  } while(receivers.some((x,i)=>x===names[i]));
+
+  // Générer UNE clé de chiffrement pour tout le tirage
+  let key=generateKey();
+
+  $("#setup").classList.add("hidden");
+  $("#organizer").classList.remove("hidden");
+
+  let root=location.href.split("#")[0], html="";
+  names.forEach((from,i)=>{
+    // Chiffrer la donnée avec la clé
+    let data={from:from, to:receivers[i], amount:amount};
+    let encrypted=encryptData(data, key);
+    let link=root+"#santa="+key+"."+encrypted;
+
+    // L'organisateur ne voit QUE le nom du destinataire du lien, PAS le mapping
+    html+=`<div class="result"><strong>📩 Lien pour ${from}</strong> <span class="secret-badge">🔒 contenu secret</span><br><input type="text" readonly value="${link}" id="link${i}"><button onclick="navigator.clipboard.writeText(document.getElementById('link${i}').value).then(()=>alert('Lien copié !'))">Copier le lien de ${from}</button></div>`;
+  });
+  $("#links").innerHTML=html;
 };
+
 $("#reset").onclick=()=>location.href=location.href.split("#")[0];
 </script></body></html>
