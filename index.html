@@ -7,17 +7,31 @@
 *{box-sizing:border-box}body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#f4f6f3;color:#18251d;margin:0;padding:24px}
 main{max-width:720px;margin:auto;background:white;border-radius:18px;padding:24px;box-shadow:0 8px 30px #0001}
 h1{margin:0 0 8px;color:#176b45}p{line-height:1.5}.sub{color:#66736b}
-textarea,input{width:100%;font:inherit;border:1px solid #ccd5ce;border-radius:10px;padding:12px;margin:8px 0}
+textarea{width:100%;font:inherit;border:1px solid #ccd5ce;border-radius:10px;padding:12px;margin:8px 0}
+input[type="text"],input[readonly]{width:100%;font:inherit;border:1px solid #ccd5ce;border-radius:10px;padding:12px;margin:8px 0}
+.amount-section{background:#e8f5e9;border:2px solid #176b45;border-radius:12px;padding:20px;margin:20px 0}
+.amount-section h3{margin:0 0 10px;color:#176b45;font-size:1.1em}
+.amount-section label{font-weight:600;display:block;margin-bottom:6px}
+.amount-section input{width:120px;font:inherit;font-size:1.2em;border:2px solid #176b45;border-radius:8px;padding:10px 14px;margin:0}
+.amount-section .euro{font-size:1.2em;font-weight:700;margin-left:6px;color:#176b45}
 button{font:inherit;border:0;border-radius:10px;padding:12px 16px;background:#176b45;color:white;cursor:pointer;margin:8px 5px 8px 0}
 button.secondary{background:#e6eee9;color:#176b45}button:disabled{opacity:.5}
 .result{background:#f0f6f1;padding:16px;border-radius:12px;margin:12px 0;overflow-wrap:anywhere}
-ul{padding-left:22px}.hidden{display:none}.warning{background:#fff6df;padding:12px;border-radius:10px;color:#73531b}
+.hidden{display:none}.warning{background:#fff6df;padding:12px;border-radius:10px;color:#73531b}
+.amount-badge{display:inline-block;background:#176b45;color:#fff;border-radius:8px;padding:4px 10px;font-weight:600;margin-left:8px}
 </style></head>
 <body><main>
 <h1>🎅 L'invité surprise</h1>
 <div id="setup">
 <p>Ajoute les prénoms, un par ligne. Le tirage évite que quelqu'un tombe sur lui-même.</p>
 <textarea id="names" rows="8" placeholder="Alice&#10;Bob&#10;Charlie&#10;..."></textarea>
+
+<div class="amount-section">
+  <h3>💰 Budget du cadeau</h3>
+  <label for="amount">Montant maximum à respecter :</label>
+  <input type="number" id="amount" value="5" min="1" max="999" step="0.5"> <span class="euro">€</span>
+</div>
+
 <button id="draw">Faire le tirage et générer les liens</button>
 <p class="sub">Il faut au minimum 2 participants (3 conseillés).</p>
 </div>
@@ -45,22 +59,28 @@ function parseHash(){
 let payload=parseHash();
 if(payload && payload.to && payload.from){
  $("#setup").classList.add("hidden");$("#reveal").classList.remove("hidden");
- $("#show").onclick=()=>{$("#gift").innerHTML="<strong>"+payload.to+"</strong>";$("#gift").classList.remove("hidden");$("#show").disabled=true;};
+ $("#show").onclick=()=>{
+   let html="<strong>"+payload.to+"</strong>";
+   if(payload.amount){html+='<br><br>🎁 Budget cadeau : <span class="amount-badge">'+payload.amount+' € max</span>';}
+   $("#gift").innerHTML=html;
+   $("#gift").classList.remove("hidden");
+   $("#show").disabled=true;
+ };
 }
 $("#draw").onclick=()=>{
  let names=$("#names").value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
  names=[...new Set(names)];
  if(names.length<2){alert("Ajoute au moins 2 prénoms.");return;}
+ let amount=parseFloat($("#amount").value)||5;
  let receivers;
- // Random permutation via Fisher-Yates, retry derangement
  do {receivers=[...names];for(let i=receivers.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[receivers[i],receivers[j]]=[receivers[j],receivers[i]];}}
  while(receivers.some((x,i)=>x===names[i]));
  $("#setup").classList.add("hidden");$("#organizer").classList.remove("hidden");
  let root=location.href.split("#")[0], html="";
  names.forEach((from,i)=>{
-   let data={from,to:receivers[i]}, encoded=btoa(unescape(encodeURIComponent(JSON.stringify(data))));
+   let data={from,to:receivers[i],amount:amount}, encoded=btoa(unescape(encodeURIComponent(JSON.stringify(data))));
    let link=root+"#santa="+encoded;
-   html+=`<div class="result"><strong>${from}</strong> → ${receivers[i]}<br><input readonly value="${link}" id="link${i}"><button onclick="navigator.clipboard.writeText(document.getElementById('link${i}').value).then(()=>alert('Lien copié !'))">Copier le lien de ${from}</button></div>`;
+   html+=`<div class="result"><strong>${from}</strong> → ${receivers[i]} <span class="amount-badge">${amount} € max</span><br><input type="text" readonly value="${link}" id="link${i}"><button onclick="navigator.clipboard.writeText(document.getElementById('link${i}').value).then(()=>alert('Lien copié !'))">Copier le lien de ${from}</button></div>`;
  });
  $("#links").innerHTML=html;
 };
